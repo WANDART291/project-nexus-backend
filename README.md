@@ -160,7 +160,7 @@ source env/Scripts/activate
 
 ```
 SECRET_KEY=your-secret-key-goes-here
-DATABASE_URL=postgres://user:password@localhost:5432/gemconnect_db
+DATABASE_URL=postgres://user:password@localhost:5432/project_nexusdb
 ```
 
 ### 4. Install dependencies
