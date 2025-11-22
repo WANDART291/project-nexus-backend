@@ -1,4 +1,3 @@
-# core/viewsets.py
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -35,16 +34,28 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def vote(self, request, pk=None):
         project = self.get_object()
         vote, created = Vote.objects.get_or_create(user=request.user, project=project)
+        
         if not created:
             return Response({"detail": "Already voted"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 🔥 FIX: Count directly from the Vote table to avoid stale cache
+        project.vote_count = Vote.objects.filter(project=project).count()
+        project.save(update_fields=["vote_count"])
+
         return Response({"detail": "Voted successfully"}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["delete"])
     def unvote(self, request, pk=None):
         project = self.get_object()
-        vote = Vote.objects.filter(user=request.user, project=project).delete()
-        if vote[0] == 0:
+        deleted, _ = Vote.objects.filter(user=request.user, project=project).delete()
+        
+        if deleted == 0:
             return Response({"detail": "Not voted"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 🔥 FIX: Count directly from the Vote table to avoid stale cache
+        project.vote_count = Vote.objects.filter(project=project).count()
+        project.save(update_fields=["vote_count"])
+
         return Response({"detail": "Vote removed"}, status=status.HTTP_204_NO_CONTENT)
 
 
