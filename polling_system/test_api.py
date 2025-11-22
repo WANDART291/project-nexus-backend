@@ -1,122 +1,112 @@
 import requests
 import random
 import string
+import json
 
-# --- CONFIGURATION ---
 BASE_URL = "http://127.0.0.1:8000/api"
 
-# Helper to generate random users
-def generate_random_string(length=8):
+# --- HELPER FUNCTIONS ---
+def get_random_string(length=6):
     return ''.join(random.choices(string.ascii_lowercase, k=length))
 
-RANDOM_USER = generate_random_string()
-EMAIL = f"{RANDOM_USER}@example.com"
-PASSWORD = "complex_password_123"
+def register_and_login(tag):
+    username = f"user_{tag}_{get_random_string()}"
+    email = f"{username}@example.com"
+    password = "TestPassword_123!" 
+    
+    # 1. Register
+    reg_url = f"{BASE_URL}/auth/users/"
+    requests.post(reg_url, json={
+        "username": username, "email": email, "password": password, "re_password": password
+    })
+    
+    # 2. Login
+    login_url = f"{BASE_URL}/auth/jwt/create/"
+    response = requests.post(login_url, json={
+        "username": username, "email": email, "password": password
+    })
+    
+    if response.status_code == 200:
+        token = response.json()["access"]
+        print(f"✅ User '{tag}' created & logged in.")
+        return token, {"Authorization": f"JWT {token}", "Content-Type": "application/json"}
+    else:
+        print(f"❌ Failed to login User {tag}: {response.text}")
+        exit()
 
-print(f"🤖 STARTING TEST BOT: User '{RANDOM_USER}'")
+def create_project(headers, name):
+    data = {
+        "name": name,
+        "description": "Sorting test project",
+        "category": "poll"
+    }
+    response = requests.post(f"{BASE_URL}/projects/", json=data, headers=headers)
+    if response.status_code != 201:
+        print(f"❌ Failed to create project '{name}': {response.text}")
+        exit()
+    return response.json()["id"]
+
+def vote(headers, project_id):
+    requests.post(f"{BASE_URL}/projects/{project_id}/vote/", headers=headers)
+
+# --- MAIN TEST ---
+print("🤖 STARTING SORTING TEST (DEBUG MODE)")
 print("-" * 50)
 
-# 1. REGISTER USER
-print(f"1. Registering user...")
-reg_url = f"{BASE_URL}/auth/users/"
-reg_data = {
-    "username": RANDOM_USER, 
-    "email": EMAIL, 
-    "password": PASSWORD, 
-    "re_password": PASSWORD 
-}
-response = requests.post(reg_url, json=reg_data)
+# 1. Setup 3 Users
+token_a, headers_a = register_and_login("A")
+token_b, headers_b = register_and_login("B")
+token_c, headers_c = register_and_login("C")
 
-if response.status_code == 201:
-    print("✅ Registration Successful")
-else:
-    print(f"❌ Registration Failed: {response.text}")
+# 2. Setup 3 Projects
+print("\n🏗️  Creating 3 Projects...")
+id_high = create_project(headers_a, "Project HIGH (3 Votes)")
+id_mid  = create_project(headers_a, "Project MID (1 Vote)")
+id_low  = create_project(headers_a, "Project LOW (0 Votes)")
+
+# 3. Cast Votes
+print("🗳️  Rigging the votes...")
+vote(headers_a, id_high)
+vote(headers_b, id_high)
+vote(headers_c, id_high)
+vote(headers_a, id_mid)
+print("✅ Votes cast.")
+
+# 4. Fetch Sorted List
+print("\n🔍 Requesting sorted list (ordering=-vote_count)...")
+sort_url = f"{BASE_URL}/projects/?ordering=-vote_count"
+response = requests.get(sort_url, headers=headers_a)
+
+# --- DEBUGGING SECTION ---
+print(f"DEBUG: Status Code: {response.status_code}")
+if response.status_code != 200:
+    print(f"❌ ERROR RESPONSE: {response.text}")
+    exit()
+# -------------------------
+
+results = response.json()
+projects = results.get("results", results) if isinstance(results, dict) else results
+
+# 5. Verify Order
+print("\n--- LEADERBOARD REPORT ---")
+
+# Filter only our test projects
+relevant_projects = []
+try:
+    relevant_projects = [p for p in projects if p['id'] in [id_high, id_mid, id_low]]
+except TypeError as e:
+    print(f"❌ CRASH: Could not process list. Raw data: {projects}")
     exit()
 
-# 2. LOGIN (GET TOKEN)
-print(f"2. Logging in...")
-auth_url = f"{BASE_URL}/auth/jwt/create/"
-auth_data = {
-    "username": RANDOM_USER, 
-    "email": EMAIL, 
-    "password": PASSWORD
-}
-response = requests.post(auth_url, json=auth_data)
+for i, project in enumerate(relevant_projects):
+    print(f"{i+1}. {project['name']} (Votes: {project['vote_count']})")
 
-if response.status_code == 200:
-    TOKEN = response.json().get("access")
-    print("✅ Login Successful (Token received)")
+if len(relevant_projects) < 3:
+    print("\n⚠️ WARNING: Could not find all 3 test projects.")
 else:
-    print(f"❌ Login Failed: {response.text}")
-    exit()
-
-# HEADERS for future requests
-headers = {
-    "Authorization": f"JWT {TOKEN}", 
-    "Content-Type": "application/json"
-}
-
-# 3. CREATE A PROJECT
-print(f"3. Creating a Project...")
-proj_url = f"{BASE_URL}/projects/"
-proj_data = {
-    "name": f"Project Nexus by {RANDOM_USER}", 
-    "description": "This is an automated test project.",
-    "repository_link": "https://github.com/test/repo",
-    "live_link": "https://nexus.test",
-    "category": "poll" # Added category to be safe
-}
-response = requests.post(proj_url, json=proj_data, headers=headers)
-
-if response.status_code == 201:
-    PROJECT_ID = response.json().get("id")
-    print(f"✅ Project Created! ID: {PROJECT_ID}")
-else:
-    print(f"❌ Project Creation Failed: {response.text}")
-    exit()
-
-# 4. VOTE FOR THE PROJECT
-print(f"4. Voting for Project {PROJECT_ID}...")
-vote_url = f"{BASE_URL}/projects/{PROJECT_ID}/vote/"
-response = requests.post(vote_url, headers=headers)
-
-if response.status_code in [200, 201]:
-    print("✅ Voted Successfully")
-else:
-    print(f"❌ Vote Failed: {response.text}")
-
-# 5. COMMENT ON THE PROJECT
-print(f"5. Adding a comment...")
-comment_url = f"{BASE_URL}/projects/{PROJECT_ID}/comments/"
-comment_data = {"content": "This looks like a great project! (Automated Comment)"} 
-response = requests.post(comment_url, json=comment_data, headers=headers)
-
-if response.status_code == 201:
-    print("✅ Comment Added")
-else:
-    print(f"❌ Comment Failed: {response.text}")
-
-# 6. VERIFY RESULTS
-print(f"6. Verifying Data...")
-verify_url = f"{BASE_URL}/projects/{PROJECT_ID}/"
-response = requests.get(verify_url, headers=headers)
-
-if response.status_code == 200:
-    data = response.json()
-    
-    # 🔥 FIX: Read 'vote_count' (Integer) instead of 'votes' (List)
-    vote_count = data.get('vote_count', 0)
-    
-    print(f"\n--- REPORT ---")
-    print(f"Project: {data.get('name')}")
-    print(f"Current Votes: {vote_count}")
-    print("-" * 50)
-
-    if vote_count == 1:
-        print("🎉 SUCCESS: Vote count updated correctly!")
+    p1, p2, p3 = relevant_projects[0], relevant_projects[1], relevant_projects[2]
+    if p1['id'] == id_high and p2['id'] == id_mid and p3['id'] == id_low:
+        print("\n🎉 TEST PASSED: Leaderboard is sorted correctly!")
     else:
-        print(f"⚠️ WARNING: Expected 1 vote, but got {vote_count}")
+        print("\n❌ TEST FAILED: Sorting order is wrong.")
 
-    print("\nDEBUG - Full Response:", data)
-else:
-    print(f"❌ Verification Failed: {response.text}")
