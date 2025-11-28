@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# --- FIX: Go inside the sub-folder ---
+cd polling_system
+# -------------------------------------
+
 # 1. Start Celery Worker in background
 celery -A polling_system worker --loglevel=info --concurrency 2 &
 
