@@ -1,32 +1,43 @@
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 from django.contrib import admin
 from django.urls import path, include
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from django.http import JsonResponse
+from django.conf import settings
+from django.conf.urls.static import static
+from rest_framework.routers import DefaultRouter
+from core.viewsets import (
+    ProjectViewSet, ProjectImageViewSet,
+    RatingViewSet, CommentViewSet, CriteriaViewSet
+)
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
-# Define a simple home view directly here
-def home(request):
-    return JsonResponse({
-        "message": "Welcome to the Project Nexus API 🚀",
-        "status": "Live",
-        "endpoints": {
-            "projects": "/api/v1/projects/",
-            "admin": "/admin/",
-            "documentation": "/api/docs/"
-        }
-    })
+router = DefaultRouter()
+router.register(r"projects", ProjectViewSet)
+
+router.register(r"projects/(?P<project_pk>\d+)/images", ProjectImageViewSet, basename="project-images")
+router.register(r"projects/(?P<project_pk>\d+)/ratings", RatingViewSet, basename="project-ratings")
+router.register(r"projects/(?P<project_pk>\d+)/comments", CommentViewSet, basename="project-comments")
+router.register(r"criteria", CriteriaViewSet)
 
 urlpatterns = [
-    # The Homepage (Root URL)
-    path('', home),
+    path("admin/", admin.site.urls),
 
-    path('admin/', admin.site.urls),
+    path('api-auth/', include('rest_framework.urls')),
+
+    path('api/auth/jwt/create/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/jwt/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # API Endpoints
-    path('api/v1/', include('core.urls')),
     path('api/auth/', include('djoser.urls')),
     path('api/auth/', include('djoser.urls.jwt')),
+
+    # --- UPDATED: API VERSIONING ADDED HERE ---
+    # Old path: path("api/", include(router.urls)),
+    # New path:
+    path("api/v1/", include(router.urls)),
     
-    # Documentation
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-]
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
