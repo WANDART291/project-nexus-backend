@@ -25,22 +25,20 @@ class UniqueRatingTest(APITestCase):
         token = response.data['access']
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
-        # ✅ FIX: Set matching categories here too
         self.project = Project.objects.create(name="Ecommerce Catalog", category="web")
         self.criteria = Criteria.objects.create(name="Design", project_category="web")
 
     def test_user_cannot_rate_twice(self):
-        url = f'/api/projects/{self.project.id}/ratings/'
+        # --- FIX: Added /v1/ ---
+        url = f'/api/v1/projects/{self.project.id}/ratings/'
         
         payload = {
             'criteria_id': self.criteria.id, 
             'score': 4
         }
 
-        # First vote: Should succeed
         first = self.client.post(url, payload, format='json')
         self.assertEqual(first.status_code, status.HTTP_201_CREATED)
 
-        # Second vote: Should fail (Duplicate)
         second = self.client.post(url, payload, format='json')
         self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)

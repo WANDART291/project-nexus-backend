@@ -15,26 +15,22 @@ class RatingTest(APITestCase):
         )
         
         url = reverse('token_obtain_pair')
-        
         response = self.client.post(
             url, 
             {'email': 'alice@test.com', 'password': 'pass123'}, 
             format='json'
         )
-        
         token = response.data['access']
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
-        # ✅ FIX: Set matching categories so serializer validation passes
-        # (Assuming "web" is a valid choice in your models. If not, use a valid one like "mobile")
         self.project = Project.objects.create(name="Movie App", category="web")
         self.criteria = Criteria.objects.create(name="Innovation", project_category="web")
 
     def test_user_can_rate_project(self):
-        url = f'/api/projects/{self.project.id}/ratings/'
+        # --- FIX: Added /v1/ ---
+        url = f'/api/v1/projects/{self.project.id}/ratings/'
 
         data = {
-            # Ensure we use 'criteria_id' as required by your serializer
             'criteria_id': self.criteria.id,
             'score': 5
         }

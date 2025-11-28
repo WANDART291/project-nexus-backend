@@ -7,19 +7,14 @@ User = get_user_model()
 
 class ProjectCreationTest(APITestCase):
     def setUp(self):
-        # 1. Create the user with a specific email
         self.user = User.objects.create_user(
             username='alice', 
             email='alice@test.com', 
             password='pass123'
         )
 
-        # 2. Get the login URL
         url = reverse('token_obtain_pair')
         
-        # 3. Log in
-        # ✅ FIX: Changed the key from 'username' to 'email' 
-        # and used the email address 'alice@test.com'
         response = self.client.post(
             url, 
             {
@@ -29,17 +24,18 @@ class ProjectCreationTest(APITestCase):
             format='json'
         )
         
-        # Now this will succeed because the login returned 200 OK
         token = response.data['access']
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
 
     def test_create_project(self):
         data = {
             'name': 'Online Polling System',
-            'description': 'A voting system'
+            'description': 'A voting system',
+            'category': 'poll' 
         }
         
-        res = self.client.post('/api/projects/', data, format='json')
+        # --- FIX: Added /v1/ ---
+        res = self.client.post('/api/v1/projects/', data, format='json')
         
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(res.data['name'], 'Online Polling System')

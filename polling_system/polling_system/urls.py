@@ -24,18 +24,18 @@ router.register(r"criteria", CriteriaViewSet)
 urlpatterns = [
     path("admin/", admin.site.urls),
 
+    path('api-auth/', include('rest_framework.urls')),
 
     path('api/auth/jwt/create/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/jwt/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-   
-
     
     path('api/auth/', include('djoser.urls')),
-  
     path('api/auth/', include('djoser.urls.jwt')),
 
-    path("api/", include(router.urls)),
-
+    # --- UPDATED: API VERSIONING ADDED HERE ---
+    # Old path: path("api/", include(router.urls)),
+    # New path:
+    path("api/v1/", include(router.urls)),
     
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
