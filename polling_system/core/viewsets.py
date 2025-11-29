@@ -5,7 +5,8 @@ from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny, IsAu
 from rest_framework.exceptions import ValidationError
 from django.db import transaction, IntegrityError
 from django.db.models import Avg
-from django.core.cache import cache  # Feature 1: Caching
+from django.core.cache import cache
+
 
 from .models import Project, ProjectImage, Criteria, Vote, Rating, Comment
 from .serializers import (
@@ -14,14 +15,16 @@ from .serializers import (
     CommentSerializer, CriteriaSerializer
 )
 from .permissions import IsOwnerOrReadOnly
-from .tasks import send_rating_email  # Feature 2: Email Task
+
+from .tasks import send_rating_email 
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
-    queryset = Project.objects.filter(status="published").select_related("creator").prefetch_related("images", "votes")
+   
+    queryset = Project.objects.filter(status="published").select_related("creator").prefetch_related("images", "votes", "ratings")
     permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ["category", "is_featured"]
@@ -38,13 +41,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def top(self, request):
-        # --- FEATURE 1: CACHED LEADERBOARD START ---
-        # 1. Check if data is already in Redis
+      
         cached_data = cache.get("leaderboard")
         if cached_data:
             return Response(cached_data)
 
-        # 2. If not, run your original query
         top_projects = self.get_queryset().annotate(
             avg_rating=Avg('ratings__score')
         ).order_by('-avg_rating')
@@ -52,35 +53,57 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(top_projects, many=True)
         data = serializer.data
 
-        # 3. Save result to Redis for 5 minutes (300 seconds)
         cache.set("leaderboard", data, 300)
-
         return Response(data)
-        # --- FEATURE 1 END ---
 
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def vote(self, request, pk=None):
         project = self.get_object()
-        vote, created = Vote.objects.get_or_create(user=request.user, project=project)
+        user = request.user
         
-        if not created:
-            return Response({"detail": "Already voted"}, status=status.HTTP_400_BAD_REQUEST)
+    
+        if 'score' in request.data:
+            criteria_id = request.data.get('criteria_id', 1)
+            try:
+                criteria = Criteria.objects.get(id=criteria_id)
+            except Criteria.DoesNotExist:
+            
+                criteria, _ = Criteria.objects.get_or_create(name="General", id=1)
+            
+            Rating.objects.update_or_create(
+                user=user, project=project, criteria=criteria,
+                defaults={'score': request.data['score']}
+            )
+            return Response({"detail": "Voted successfully"}, status=status.HTTP_201_CREATED)
 
-        project.vote_count = Vote.objects.filter(project=project).count()
-        project.save(update_fields=["vote_count"])
-        return Response({"detail": "Voted successfully"}, status=status.HTTP_201_CREATED)
+        
+        else:
+            vote, created = Vote.objects.get_or_create(user=user, project=project)
+            if not created:
+                return Response({"detail": "Already voted"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            project.vote_count = Vote.objects.filter(project=project).count()
+            project.save(update_fields=["vote_count"])
+            return Response({"detail": "Voted successfully"}, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["delete"], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=["delete", "post"], permission_classes=[IsAuthenticated])
     def unvote(self, request, pk=None):
         project = self.get_object()
-        deleted, _ = Vote.objects.filter(user=request.user, project=project).delete()
-        
-        if deleted == 0:
-            return Response({"detail": "Not voted"}, status=status.HTTP_400_BAD_REQUEST)
+        user = request.user
 
-        project.vote_count = Vote.objects.filter(project=project).count()
-        project.save(update_fields=["vote_count"])
-        return Response({"detail": "Vote removed"}, status=status.HTTP_204_NO_CONTENT)
+        
+        deleted_votes, _ = Vote.objects.filter(user=user, project=project).delete()
+
+        deleted_ratings, _ = Rating.objects.filter(user=user, project=project).delete()
+
+  
+        if deleted_votes > 0 or deleted_ratings > 0:
+            
+            project.vote_count = Vote.objects.filter(project=project).count()
+            project.save(update_fields=["vote_count"])
+            return Response({"detail": "Vote removed"}, status=status.HTTP_200_OK)
+        
+        return Response({"detail": "Not voted"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ProjectImageViewSet(viewsets.ModelViewSet):
@@ -112,16 +135,12 @@ class RatingViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         project = Project.objects.get(pk=self.kwargs["project_pk"])
-        
         try:
             with transaction.atomic():
                 serializer.save(user=self.request.user, project=project)
-                
-                # --- FEATURE 2: BACKGROUND EMAIL TRIGGER ---
-                # Ensure project has a creator and email
+                # Check if email task exists and user has email
                 if hasattr(project, 'creator') and project.creator and project.creator.email:
                     send_rating_email.delay(project.creator.email, project.name)
-
         except IntegrityError:
             raise ValidationError({"detail": "You have already rated this project."})
 
